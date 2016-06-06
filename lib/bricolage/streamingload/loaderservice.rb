@@ -19,10 +19,11 @@ module Bricolage
           exit 1
         end
         config_path, * = opts.rest_arguments
+        set_log_path opts.log_file_path if opts.log_file_path
 
         config = YAML.load(File.read(config_path))
 
-        ctx = Context.for_application('.')
+        ctx = Context.for_application('.', environment: opts.environment)
         redshift_ds = ctx.get_data_source('sql', config.fetch('redshift-ds'))
         task_queue = ctx.get_data_source('sqs', config.fetch('task-queue-ds'))
 
@@ -42,6 +43,15 @@ module Bricolage
           create_pid_file opts.pid_file_path if opts.pid_file_path
           service.event_loop
         end
+      end
+
+      def LoaderService.set_log_path(path)
+        FileUtils.mkdir_p File.dirname(path)
+        # make readable for retrieve_last_match_from_stderr
+        File.open(path, 'w+') {|f|
+          $stdout.reopen f
+          $stderr.reopen f
+        }
       end
 
       def LoaderService.create_pid_file(path)
@@ -86,6 +96,7 @@ module Bricolage
         @argv = argv
         @task_id = nil
         @daemon = false
+        @log_file_path = nil
         @pid_file_path = nil
         @rest_arguments = nil
 
@@ -93,8 +104,14 @@ module Bricolage
         opts.on('--task-id=ID', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_id|
           @task_id = task_id
         }
+        opts.on('-e', '--environment=NAME', "Sets execution environment [default: #{Context::DEFAULT_ENV}]") {|env|
+          @environment = env
+        }
         opts.on('--daemon', 'Becomes daemon in server mode.') {
           @daemon = true
+        }
+        opts.on('--log-file=PATH', 'Log file path') {|path|
+          @log_file_path = path
         }
         opts.on('--pid-file=PATH', 'Creates PID file.') {|path|
           @pid_file_path = path
@@ -120,7 +137,7 @@ module Bricolage
         raise OptionError, err.message
       end
 
-      attr_reader :rest_arguments
+      attr_reader :rest_arguments, :environment, :log_file_path
       attr_reader :task_id
 
       def daemon?
