@@ -34,27 +34,23 @@ module Bricolage
           # Do nothing if the task already running or succeeded
           # Retry if error
           return if task_processed?(@params.task_seq)
-          assign_task
-          #FIXME unprocessed job remains if loader dies this here, before finishing load
-          #You can retry it by inserting result as error if the task message is still in sqs
-          do_load
+          @connection.transaction {
+            assign_task
+            do_load
+          }
         }
       end
 
       def assign_task
-        @connection.transaction {|txn|
-          @job_seq = write_job(@params.task_seq)
-          @logger.info "dwh_job_seq=#{@job_seq}"
-          stage_files(@params.task_seq)
-        }
+        @job_seq = write_job(@params.task_seq)
+        @logger.info "dwh_job_seq=#{@job_seq}"
+        stage_files(@params.task_seq)
       end
 
       def do_load
         files = staged_files
         if files.empty?
-          @connection.transaction {
-            commit_job_result
-          }
+          commit_job_result
           return
         end
         ManifestFile.create(
@@ -66,15 +62,11 @@ module Bricolage
           if @params.enable_work_table?
             prepare_work_table @params.work_table
             load_objects @params.work_table, manifest, @params.load_options_string
-            @connection.transaction {
-              commit_work_table @params
-              commit_job_result
-            }
+            commit_work_table @params
+            commit_job_result
           else
-            @connection.transaction {
-              load_objects @params.dest_table, manifest, @params.load_options_string
-              commit_job_result
-            }
+            load_objects @params.dest_table, manifest, @params.load_options_string
+            commit_job_result
           end
         }
       rescue JobFailure => ex
