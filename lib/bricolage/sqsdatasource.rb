@@ -58,6 +58,9 @@ module Bricolage
       Signal.trap(:TERM) {
         initiate_terminate
       }
+      Signal.trap(:INT) {
+        initiate_terminate
+      }
     end
 
     def initiate_terminate
