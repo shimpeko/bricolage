@@ -1,0 +1,9 @@
+CREATE TABLE strload_objects (
+  object_seq bigserial NOT NULL
+  , table_id integer NOT NULL
+  , object_url character varying(512) NOT NULL
+  , sqs_message_id character varying(128) NOT NULL
+  , sqs_receipt_handle character varying(1024) NOT NULL
+  , sqs_event_time timestamp with time zone NOT NULL
+  , CONSTRAINT strload_object_pkey PRIMARY KEY (object_seq)
+);

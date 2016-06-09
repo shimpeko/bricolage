@@ -1,0 +1,13 @@
+CREATE TABLE strload_tables (
+  id integer NOT NULL
+  , source_id character varying(256) NOT NULL
+  , dest_schema character varying(128) NOT NULL
+  , dest_table character varying(128) NOT NULL
+  , job_class character varying(64) NOT NULL
+  , disabled boolean NOT NULL
+  , use_work boolean NOT NULL
+  , load_batch_size integer NOT NULL
+  , load_interval integer NOT NULL
+  , CONSTRAINT strload_tables_pkey PRIMARY KEY (id)
+);
+
