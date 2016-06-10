@@ -1,7 +1,6 @@
 CREATE TABLE strload_job_params (
-  id integer NOT NULL
-  , table_id integer not null
+  table_id integer not null
   , use_work boolean not null
-  , CONSTRAINT strload_tables_pkey PRIMARY KEY (id)
+  , CONSTRAINT strload_job_params_pkey PRIMARY KEY (table_id)
 );
 

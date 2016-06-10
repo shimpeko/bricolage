@@ -3,5 +3,7 @@ CREATE TABLE strload_jobs (
   , id character varying(128) NOT NULL
   , table_id integer NOT NULL
   , registration_time timestamp with time zone NOT NULL
+  , force boolean NOT NULL DEFAULT false
   , CONSTRAINT strload_jobs_pkey PRIMARY KEY (job_seq)
-);
+)
+;

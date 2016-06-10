@@ -31,13 +31,9 @@ module Bricolage
         task_queue = ctx.get_data_source('sqs', config.fetch('task-queue-ds'))
 
         object_buffer = ObjectBuffer.new(
-          task_queue: task_queue,
-          data_source: ctx.get_data_source('sql', 'sql'),
-          control_data_source: ctx.get_data_source('s3', config.fetch('ctl-ds')),
-          default_buffer_size_limit: 500,
-          default_load_interval: 900,
-          process_flush_interval: 60,
-          context: ctx
+          control_data_source: ctx.get_data_source('sql', config.fetch('ctl-postgres-ds')),
+          flush_interval: 60,
+          logger: ctx.logger
         )
 
         url_patterns = URLPatterns.for_config(config.fetch('url_patterns'))
@@ -94,36 +90,17 @@ module Bricolage
           return
         end
         obj = e.loadable_object(@url_patterns)
-        buf = @object_buffer[obj.qualified_name]
-        unless buf
-          @event_queue.delete_message(e)
-          return
-        end
-        if buf.empty?
-          set_flush_timer obj.qualified_name, buf.load_interval
-        end
-        buf.put(obj)
-      end
-
-      def set_flush_timer(table_name, sec)
-        @event_queue.send_message FlushEvent.create(table_name: table_name, delay_seconds: sec)
-      end
-
-      def handle_flush(e)
-        # might be nil in rare case ( stop -> del job file -> start )
-        @object_buffer[e.table_name].request_flush if @object_buffer[e.table_name]
-        @event_queue.delete_message(e)
+        @object_buffer.put(obj)
       end
 
       def handle_processflush(e)
         @event_queue.delete_message(e)
-        load_tasks = @object_buffer.process_flush
-        load_tasks.each {|load_task| delete_events(load_task.source_events) }
+        @object_buffer.flush
         set_processflush_timer
       end
 
       def set_processflush_timer
-        @event_queue.send_message ProcessFlushEvent.create(delay_seconds: @object_buffer.process_flush_interval)
+        @event_queue.send_message ProcessFlushEvent.create(delay_seconds: @object_buffer.flush_interval)
       end
 
       def delete_events(events)
