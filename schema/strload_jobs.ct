@@ -1,13 +1,7 @@
 CREATE TABLE strload_jobs (
   job_seq bigserial NOT NULL
-  , job_id character varying(128) NOT NULL
-  , class character varying(64) NOT NULL
-  , process_id integer
-  , registration_time timestamp with time zone
-  , start_time timestamp with time zone
-  , finish_time timestamp with time zone
-  , status character varying(128)
-  , message character varying(1024)
+  , id character varying(128) NOT NULL
+  , table_id integer NOT NULL
+  , registration_time timestamp with time zone NOT NULL
   , CONSTRAINT strload_jobs_pkey PRIMARY KEY (job_seq)
 );
-
