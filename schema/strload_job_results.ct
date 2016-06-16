@@ -1,9 +1,0 @@
-CREATE TABLE strload_job_status (
-  job_seq integer NOT NULL
-  , loader_id integer NOT NULL
-  , start_time timestamp with time zone
-  , finish_time timestamp with time zone
-  , status character varying(32)
-  , message character varying(512)
-);
-COMMENT ON COLUMN strload_job_results.status IS 'runnig, success, failure';

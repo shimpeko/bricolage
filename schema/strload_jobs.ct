@@ -1,9 +1,14 @@
 CREATE TABLE strload_jobs (
   job_seq bigserial NOT NULL
   , id character varying(128) NOT NULL
-  , table_id integer NOT NULL
-  , registration_time timestamp with time zone NOT NULL
-  , force boolean NOT NULL DEFAULT false
+  , task_seq bigserial NOT NULL
+  , task_id character varying(128) NOT NULL
+  , loader_id varchar(64) NOT NULL
+  , status character varying(16)
+  , start_time timestamp with time zone
+  , finish_time timestamp with time zone
+  , message character varying(512)
   , CONSTRAINT strload_jobs_pkey PRIMARY KEY (job_seq)
 )
 ;
+COMMENT ON COLUMN strload_jobs.status IS 'runnig, success, failure';

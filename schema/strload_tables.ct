@@ -5,8 +5,8 @@ CREATE TABLE strload_tables (
   , table_name character varying(128) NOT NULL
   , load_batch_size integer NOT NULL
   , load_interval integer NOT NULL
-  , load_option jsonb
-  , disabled boolean not null
+  , disabled boolean NOT NULL
+  , job_param_id integer
   , CONSTRAINT strload_tables_pkey PRIMARY KEY (id)
   , CONSTRAINT strlaod_tables_uniq UNIQUE (schema_name, table_name)
 );

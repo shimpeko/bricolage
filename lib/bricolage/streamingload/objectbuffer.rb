@@ -58,8 +58,8 @@ module Bricolage
       def flush
         @ctl_ds.open {|conn|
           conn.transaction {|txn|
-            insert_jobs(conn)
-            insert_job_objects(conn)
+            insert_tasks(conn)
+            insert_task_objects(conn)
           }
         }
       end
@@ -88,14 +88,14 @@ module Bricolage
         EndSQL
       end
 
-      def insert_jobs(conn)
+      def insert_tasks(conn)
         conn.update(<<-EndSQL)
           create extension if not exists pgcrypto;
           insert into
-              strload_jobs (id, table_id, registration_time)
+              strload_tasks (id, source_id, registration_time)
           select
               gen_random_uuid() as id
-              , id as table_id
+              , source_id
               , current_timestamp as registration_time
           from
               strload_tables tbl
@@ -106,73 +106,73 @@ module Bricolage
               from
                   strload_objects t1
               left outer join
-                  strload_job_objects t2
+                  strload_task_objects t2
                   on t1.object_seq = t2.object_seq
               where
-                  t2.job_seq is null -- not assigned to a job
+                  t2.task_seq is null -- not assigned to a task
               group by
                   source_id
-              ) obj -- number of objects not assigned to a job
+              ) obj -- number of objects not assigned to a task
               on tbl.source_id = obj.source_id
           left outer join (
               select
-                  table_id
+                  source_id
                   , max(registration_time) as latest_registration_time
               from
-                  strload_jobs
+                  strload_tasks
               group by
-                  table_id
-              ) job -- preceeding job's registration time
-              on tbl.id = job.table_id
+                  source_id
+              ) task -- preceeding task's registration time
+              on tbl.source_id = task.source_id
           where
               tbl.disabled = false -- not disabled
               and (
                 obj.object_count > tbl.load_batch_size -- batch_size exceeded?
                 or extract(epoch from current_timestamp - latest_registration_time) > load_interval -- load_interval exceeded?
-                or latest_registration_time is null -- no last job
+                or latest_registration_time is null -- no last task
               )
           ;
         EndSQL
       end
 
-      def insert_job_objects(conn)
+      def insert_task_objects(conn)
         conn.update(<<-EndSQL)
           insert into
-              strload_job_objects
+              strload_task_objects
           select
-              job_seq
+              task_seq
               , object_seq
           from (
               select
-                  row_number() over(partition by job.job_seq order by object_seq) as object_count
-                  , job.job_seq
+                  row_number() over(partition by task.task_seq order by object_seq) as object_count
+                  , task.task_seq
                   , obj.object_seq
                   , load_batch_size
               from
                   strload_objects obj
               inner join (
                   select
-                      min(job_seq) as job_seq -- oldest job
+                      min(task_seq) as task_seq -- oldest task
                       , source_id
                       , max(load_batch_size) as load_batch_size
                   from
-                      strload_jobs
+                      strload_tasks
                   inner join
                       strload_tables
-                      on table_id = strload_tables.id
+                      on source_id = strload_tables.source_id
                   where
-                      job_seq not in (select distinct job_seq from strload_job_objects) -- no assigned objects
-                  group by 2 -- group by source_id to prevent an object assigned to multiple job
-                  ) job -- jobs without job objects
-                  on obj.source_id = job.source_id
+                      task_seq not in (select distinct task_seq from strload_task_objects) -- no assigned objects
+                  group by 2 -- group by source_id to prevent an object assigned to multiple task
+                  ) task -- tasks without objects
+                  on obj.source_id = task.source_id
               left outer join
-                  strload_job_objects job_obj
-                  on obj.object_seq = job_obj.object_seq
+                  strload_task_objects task_obj
+                  on obj.object_seq = task_obj.object_seq
               where
-                  job_obj.object_seq is null -- not assigned to a job
+                  task_obj.object_seq is null -- not assigned to a task
               ) as t
           where
-              object_count < load_batch_size -- limit number of objects assigned to a job
+              object_count < load_batch_size -- limit number of objects assigned to single task
           ;
         EndSQL
       end

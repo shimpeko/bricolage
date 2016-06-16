@@ -1,6 +1,10 @@
 CREATE TABLE strload_job_params (
-  table_id integer not null
-  , use_work boolean not null
-  , CONSTRAINT strload_job_params_pkey PRIMARY KEY (table_id)
+  id integer not null
+  , redshift_ds varchar(32)
+  , ctl_ds varchar(32)
+  , work_table varchar(128)
+  , sql_file varchar(128)
+  , load_options jsonb
+  , CONSTRAINT strload_job_params_pkey PRIMARY KEY (id)
 );
 

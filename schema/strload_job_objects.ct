@@ -1,5 +1,0 @@
-CREATE TABLE strload_job_objects (
-    job_seq bigint NOT NULL,
-    object_seq bigint NOT NULL
-    , CONSTRAINT strload_job_objects_pkey PRIMARY KEY (job_seq, object_seq)
-);
