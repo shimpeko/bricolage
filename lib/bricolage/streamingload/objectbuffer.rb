@@ -95,7 +95,7 @@ module Bricolage
               strload_tasks (id, source_id, registration_time)
           select
               gen_random_uuid() as id
-              , source_id
+              , obj.source_id
               , current_timestamp as registration_time
           from
               strload_tables tbl
@@ -144,7 +144,7 @@ module Bricolage
               , object_seq
           from (
               select
-                  row_number() over(partition by task.task_seq order by object_seq) as object_count
+                  row_number() over(partition by task.task_seq order by obj.object_seq) as object_count
                   , task.task_seq
                   , obj.object_seq
                   , load_batch_size
@@ -153,13 +153,13 @@ module Bricolage
               inner join (
                   select
                       min(task_seq) as task_seq -- oldest task
-                      , source_id
+                      , strload_tasks.source_id
                       , max(load_batch_size) as load_batch_size
                   from
                       strload_tasks
                   inner join
                       strload_tables
-                      on source_id = strload_tables.source_id
+                      using(source_id)
                   where
                       task_seq not in (select distinct task_seq from strload_task_objects) -- no assigned objects
                   group by 2 -- group by source_id to prevent an object assigned to multiple task
