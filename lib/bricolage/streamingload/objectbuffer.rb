@@ -72,7 +72,7 @@ module Bricolage
       end
 
       def insert_object(conn, obj)
-        # insert object if not already exists
+        source_id = "#{obj.schema_name}.#{obj.table_name}"
         conn.update(<<-EndSQL)
             insert into strload_objects
                 ( source_id
@@ -81,12 +81,13 @@ module Bricolage
                 , submit_time
                 )
             select
-                '#{obj.schema_name}.#{obj.table_name}'
+                #{s source_id}
                 , #{s obj.url}
                 , #{obj.size}
                 , current_timestamp
             where
                 not exists (select * from strload_objects where object_url = #{s obj.url})
+                and exists (select * from strload_tables where source_id = #{s source_id})
             ;
         EndSQL
       end
