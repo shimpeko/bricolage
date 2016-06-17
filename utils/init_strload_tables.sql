@@ -1,14 +1,14 @@
-drop table if exists dwh_job_results;
-drop table if exists dwh_jobs;
-drop table if exists dwh_str_load_files;
-drop table if exists dwh_str_load_files_incoming;
-drop table if exists dwh_str_load_tables;
-drop table if exists dwh_tasks;
+drop table if exists strload_job_params;
+drop table if exists strload_objects;
+drop table if exists strload_tables;
+drop table if exists strload_task_objects;
+drop table if exists strload_tasks;
+drop table if exists strload_jobs;
 
-\i schema/dwh_job_results.ct
-\i schema/dwh_jobs.ct
-\i schema/dwh_str_load_files.ct
-\i schema/dwh_str_load_files_incoming.ct
-\i schema/dwh_str_load_tables.ct
-\i schema/dwh_tasks.ct
+\i schema/strload_job_params.ct
+\i schema/strload_objects.ct
+\i schema/strload_tables.ct
+\i schema/strload_task_objects.ct
+\i schema/strload_tasks.ct
+\i schema/strload_jobs.ct
 
