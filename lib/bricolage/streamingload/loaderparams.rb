@@ -9,7 +9,8 @@ module Bricolage
 
       def LoaderParams.load(ctx, task)
         job = load_job(ctx, task)
-        job.provide_default 'dest-table', "#{task.schema}.#{task.table}"
+        schema = resolve_schema(ctx, task.schema)
+        job.provide_default 'dest-table', "#{schema}.#{task.table}"
         #job.provide_sql_file_by_job_id   # FIXME: provide only when exist
         job.compile
         new(task, job)
@@ -18,7 +19,7 @@ module Bricolage
       def LoaderParams.load_job(ctx, task)
         if job_file = find_job_file(ctx, task.schema, task.table)
           ctx.logger.debug "using .job file: #{job_file}"
-          Job.load_file(job_file, ctx.subsystem(schema))
+          Job.load_file(job_file, ctx.subsystem(task.schema))
         else
           ctx.logger.debug "using default job parameters (no .job file)"
           Job.instantiate(task.table, 'streaming_load_v3', ctx).tap {|job|
@@ -31,6 +32,11 @@ module Bricolage
         paths = Dir.glob("#{ctx.home_path}/#{schema}/#{table}.*")
         paths.select {|path| File.extname(path) == '.job' }.sort.first
       end
+
+      def LoaderParams.resolve_schema(ctx, schema)
+        ctx.global_variables["#{schema}_schema"] || schema
+      end
+      private_class_method :resolve_schema
 
       def initialize(task, job)
         @task = task
