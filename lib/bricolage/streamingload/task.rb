@@ -33,10 +33,9 @@ module Bricolage
               using(source_id)
           where
               task_seq not in (select task_seq from strload_jobs) -- only task not executed yet
-              and (force = true or disabled = false) -- not disabled or force=true
+              and disabled = false
           order by
-              force desc -- execute task with force=true first
-              , registration_time -- fifo
+              registration_time -- fifo
           limit 1
           ;
         EndSQL
@@ -97,7 +96,6 @@ module Bricolage
       def qualified_name
         "#{@schema}.#{@table}"
       end
-
 
     end
 
