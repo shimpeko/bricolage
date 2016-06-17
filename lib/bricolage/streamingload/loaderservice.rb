@@ -67,6 +67,11 @@ module Bricolage
         @ctl_ds = control_data_source
         @ds = data_source
         @logger = logger
+        enable_pgcrypto
+      end
+
+      def enable_pgcrypto
+        @ctl_ds.create_extension('pgcrypto')
       end
 
       def load_loop

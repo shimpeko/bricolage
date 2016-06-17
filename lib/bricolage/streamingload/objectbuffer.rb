@@ -45,6 +45,7 @@ module Bricolage
         @ctl_ds = control_data_source
         @flush_interval = flush_interval
         @logger = logger
+        enable_pgcrypto
       end
 
       attr_reader :flush_interval
@@ -65,6 +66,10 @@ module Bricolage
       end
 
       private
+
+      def enable_pgcrypto
+        @ctl_ds.create_extension('pgcrypto')
+      end
 
       def insert_object(conn, obj)
         conn.update(<<-EndSQL)
@@ -90,13 +95,12 @@ module Bricolage
 
       def insert_tasks(conn)
         conn.update(<<-EndSQL)
-          create extension if not exists pgcrypto;
           insert into
               strload_tasks (id, source_id, registration_time)
           select
-              gen_random_uuid() as id
+              gen_random_uuid()
               , obj.source_id
-              , current_timestamp as registration_time
+              , current_timestamp
           from
               strload_tables tbl
           inner join (
@@ -112,7 +116,7 @@ module Bricolage
                   t2.task_seq is null -- not assigned to a task
               group by
                   source_id
-              ) obj -- number of objects not assigned to a task
+              ) obj -- number of objects not assigned to a task (won't return zero)
               on tbl.source_id = obj.source_id
           left outer join (
               select

@@ -28,7 +28,6 @@ module Bricolage
         config = YAML.load(File.read(config_path))
         ctx = Context.for_application('.', environment: opts.environment)
         event_queue = ctx.get_data_source('sqs', config.fetch('event-queue-ds'))
-        task_queue = ctx.get_data_source('sqs', config.fetch('task-queue-ds'))
 
         object_buffer = ObjectBuffer.new(
           control_data_source: ctx.get_data_source('sql', config.fetch('ctl-postgres-ds')),
