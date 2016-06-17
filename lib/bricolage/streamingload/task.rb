@@ -9,6 +9,10 @@ module Bricolage
 
       @@loader_id = "#{`hostname`.strip}-#{$$}"
 
+      def LoadTask.set_loader_id(loader_id)
+        @@loader_id = loader_id
+      end
+
       def LoadTask.load(conn)
         conn.update(<<-EndSQL)
           insert into strload_jobs

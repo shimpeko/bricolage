@@ -34,6 +34,7 @@ module Bricolage
           logger: ctx.logger
         )
 
+        LoadTask.set_loader_id(opts.loader_id) if opts.loader_id
         if opts.task_id
           # Single task mode
           service.execute_task opts.task_id
@@ -129,6 +130,7 @@ module Bricolage
       def initialize(argv)
         @argv = argv
         @task_id = nil
+        @loader_id = nil
         @daemon = false
         @log_file_path = nil
         @pid_file_path = nil
@@ -137,6 +139,9 @@ module Bricolage
         @opts = opts = OptionParser.new("Usage: #{$0} CONFIG_PATH")
         opts.on('--task-id=ID', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_id|
           @task_id = task_id
+        }
+        opts.on('--loader-id=ID', 'Set loader ID') {|loader_id|
+          @loader_id = loader_id
         }
         opts.on('-e', '--environment=NAME', "Sets execution environment [default: #{Context::DEFAULT_ENV}]") {|env|
           @environment = env
@@ -172,7 +177,7 @@ module Bricolage
       end
 
       attr_reader :rest_arguments, :environment, :log_file_path
-      attr_reader :task_id
+      attr_reader :task_id, :loader_id
 
       def daemon?
         @daemon
