@@ -175,7 +175,7 @@ module Bricolage
                   task_obj.object_seq is null -- not assigned to a task
               ) as t
           where
-              object_count < load_batch_size -- limit number of objects assigned to single task
+              object_count <= load_batch_size -- limit number of objects assigned to single task
           ;
         EndSQL
       end
