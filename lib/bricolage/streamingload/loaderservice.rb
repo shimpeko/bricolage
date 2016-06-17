@@ -96,9 +96,14 @@ module Bricolage
       end
 
       def execute(task)
-        @logger.info "handling task: table=#{task.qualified_name} task_id=#{task.id} task_seq=#{task.seq}"
+        @logger.info "handling task: table=#{task.qualified_name} task_id=#{task.id} task_seq=#{task.seq} num_objects=#{task.object_urls.size}"
         loader = Loader.load_from_file(@ctx, @ctl_ds, task, logger: @ctx.logger)
         loader.execute
+      end
+
+      def execute_task(task_id)
+        task = @ctl_ds.open {|conn| LoadTask.load_by_id(conn) }
+        execute(task)
       end
 
       def trap_signals

@@ -14,6 +14,16 @@ module Bricolage
       end
 
       def LoadTask.load(conn)
+        start_task(conn)
+        load_started_task(conn)
+      end
+
+      def LoadTask.load_by_id(conn, task_id)
+        start_task_by_id(conn, task_id)
+        load_started_task(conn)
+      end
+
+      def LoadTask.start_task(conn)
         conn.update(<<-EndSQL)
           insert into strload_jobs
               ( id
@@ -43,6 +53,34 @@ module Bricolage
           limit 1
           ;
         EndSQL
+      end
+
+      def LoadTask.start_task_by_id(conn, task_id)
+        conn.update(<<-EndSQL)
+          insert into strload_jobs
+              ( id
+              , task_seq
+              , task_id
+              , loader_id
+              , status
+              , start_time
+              )
+          select
+              gen_random_uuid()
+              , task_seq
+              , id
+              , '#{@@loader_id}'
+              , 'running'
+              , current_timestamp
+          from
+              strload_tasks
+          where
+              id = '#{task_id}'
+          ;
+        EndSQL
+      end
+
+      def LoadTask.load_started_task(conn)
         rec = conn.query_row(<<-EndSQL)
           select
               job.task_seq
@@ -83,6 +121,8 @@ module Bricolage
         rec['object_urls'] = object_urls
         new(Hash[rec.map {|k, v| [k.to_sym, v] }])
       end
+
+      private_class_method :start_task, :start_task_by_id, :load_started_task
 
       def initialize(task_seq:, task_id:, source_id:, schema_name:, table_name:, job_seq:, job_id:, object_urls:)
         @id = task_id
