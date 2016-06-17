@@ -2,7 +2,7 @@ CREATE TABLE strload_tasks (
   task_seq bigserial NOT NULL
   , id character varying(128) NOT NULL
   , source_id character varying(256) NOT NULL
-  , registration_time timestamp with time zone NOT NULL
+  , submit_time timestamp with time zone NOT NULL
   , CONSTRAINT strload_tasks_pkey PRIMARY KEY (task_seq)
 )
 ;

@@ -49,7 +49,7 @@ module Bricolage
               task_seq not in (select task_seq from strload_jobs) -- only task not executed yet
               and disabled = false
           order by
-              registration_time -- fifo
+              submit_time -- fifo
           limit 1
           ;
         EndSQL

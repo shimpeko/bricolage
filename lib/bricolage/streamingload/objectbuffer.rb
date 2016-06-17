@@ -95,7 +95,7 @@ module Bricolage
       def insert_tasks(conn)
         conn.update(<<-EndSQL)
           insert into
-              strload_tasks (id, source_id, registration_time)
+              strload_tasks (id, source_id, submit_time)
           select
               gen_random_uuid()
               , obj.source_id
@@ -120,19 +120,19 @@ module Bricolage
           left outer join (
               select
                   source_id
-                  , max(registration_time) as latest_registration_time
+                  , max(submit_time) as latest_submit_time
               from
                   strload_tasks
               group by
                   source_id
-              ) task -- preceeding task's registration time
+              ) task -- preceeding task's submit time
               on tbl.source_id = task.source_id
           where
               tbl.disabled = false -- not disabled
               and (
                 obj.object_count > tbl.load_batch_size -- batch_size exceeded?
-                or extract(epoch from current_timestamp - latest_registration_time) > load_interval -- load_interval exceeded?
-                or latest_registration_time is null -- no last task
+                or extract(epoch from current_timestamp - latest_submit_time) > load_interval -- load_interval exceeded?
+                or latest_submit_time is null -- no last task
               )
           ;
         EndSQL
