@@ -4,7 +4,5 @@ CREATE TABLE strload_objects (
   , object_url character varying(512) NOT NULL
   , object_size integer NOT NULL
   , submit_time timestamp with time zone NOT NULL
-  , sqs_message_id character varying(128) NOT NULL
-  , sqs_receipt_handle character varying(1024) NOT NULL
-  , CONSTRAINT strload_object_pkey PRIMARY KEY (object_seq)
+  , CONSTRAINT strload_objects_pkey PRIMARY KEY (object_seq)
 );

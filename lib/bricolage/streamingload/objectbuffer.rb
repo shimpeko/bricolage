@@ -78,16 +78,12 @@ module Bricolage
                 , object_url
                 , object_size
                 , submit_time
-                , sqs_message_id
-                , sqs_receipt_handle
                 )
             values
                 ( '#{obj.schema_name}.#{obj.table_name}'
                 , #{s obj.url}
                 , #{obj.size}
                 , current_timestamp
-                , #{s obj.message_id}
-                , #{s obj.receipt_handle}
                 )
             ;
         EndSQL
