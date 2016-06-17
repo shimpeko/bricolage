@@ -42,9 +42,8 @@ module Bricolage
               , current_timestamp
           from
               strload_tasks tsk
-          inner join
-              strload_tables
-              using(source_id)
+              inner join strload_tables
+                  using(source_id)
           where
               task_seq not in (select task_seq from strload_jobs) -- only task not executed yet
               and disabled = false
@@ -92,14 +91,12 @@ module Bricolage
               , job.id as job_id
           from
               strload_tasks task
-          inner join
-              strload_jobs job
-              on task.task_seq = job.task_seq
-              and status = 'running'
-              and loader_id = '#{@@loader_id}'
-          inner join
-              strload_tables tbl
-              using(source_id)
+              inner join strload_jobs job
+                  on task.task_seq = job.task_seq
+                  and status = 'running'
+                  and loader_id = '#{@@loader_id}'
+              inner join strload_tables tbl
+                  using(source_id)
           order by
               start_time desc -- lifo
           limit 1
@@ -111,8 +108,7 @@ module Bricolage
               object_url
           from
               strload_objects
-          inner join
-              strload_task_objects
+          inner join strload_task_objects
               using(object_seq)
           where
               task_seq = #{rec['task_seq']}

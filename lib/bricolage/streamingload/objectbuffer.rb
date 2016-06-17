@@ -102,31 +102,30 @@ module Bricolage
               , current_timestamp
           from
               strload_tables tbl
-          inner join (
-              select
-                  source_id
-                  , count(*) as object_count
-              from
-                  strload_objects t1
-              left outer join
-                  strload_task_objects t2
-                  on t1.object_seq = t2.object_seq
-              where
-                  t2.task_seq is null -- not assigned to a task
-              group by
-                  source_id
-              ) obj -- number of objects not assigned to a task (won't return zero)
-              on tbl.source_id = obj.source_id
-          left outer join (
-              select
-                  source_id
-                  , max(submit_time) as latest_submit_time
-              from
-                  strload_tasks
-              group by
-                  source_id
-              ) task -- preceeding task's submit time
-              on tbl.source_id = task.source_id
+              inner join (
+                  select
+                      source_id
+                      , count(*) as object_count
+                  from
+                      strload_objects t1
+                      left outer join strload_task_objects
+                          using(object_seq)
+                  where
+                      task_seq is null -- not assigned to a task
+                  group by
+                      source_id
+                  ) obj -- number of objects not assigned to a task (won't return zero)
+                  on tbl.source_id = obj.source_id
+              left outer join (
+                  select
+                      source_id
+                      , max(submit_time) as latest_submit_time
+                  from
+                      strload_tasks
+                  group by
+                      source_id
+                  ) task -- preceeding task's submit time
+                  on tbl.source_id = task.source_id
           where
               tbl.disabled = false -- not disabled
               and (
@@ -153,24 +152,22 @@ module Bricolage
                   , load_batch_size
               from
                   strload_objects obj
-              inner join (
-                  select
-                      min(task_seq) as task_seq -- oldest task
-                      , strload_tasks.source_id
-                      , max(load_batch_size) as load_batch_size
-                  from
-                      strload_tasks
-                  inner join
-                      strload_tables
-                      using(source_id)
-                  where
-                      task_seq not in (select distinct task_seq from strload_task_objects) -- no assigned objects
-                  group by 2 -- group by source_id to prevent an object assigned to multiple task
-                  ) task -- tasks without objects
-                  on obj.source_id = task.source_id
-              left outer join
-                  strload_task_objects task_obj
-                  on obj.object_seq = task_obj.object_seq
+                  inner join (
+                      select
+                          min(task_seq) as task_seq -- oldest task
+                          , strload_tasks.source_id
+                          , max(load_batch_size) as load_batch_size
+                      from
+                          strload_tasks
+                          inner join strload_tables
+                              using(source_id)
+                      where
+                          task_seq not in (select distinct task_seq from strload_task_objects) -- no assigned objects
+                      group by 2 -- group by source_id to prevent an object assigned to multiple task
+                      ) task -- tasks without objects
+                      on obj.source_id = task.source_id
+                  left outer join strload_task_objects task_obj
+                      using(object_seq)
               where
                   task_obj.object_seq is null -- not assigned to a task
               ) as t
