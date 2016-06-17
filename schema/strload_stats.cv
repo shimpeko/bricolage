@@ -1,4 +1,6 @@
-select
+create view
+    strload_stats
+as select
     task_seq
     , tbl.source_id
     , tbl.schema_name
