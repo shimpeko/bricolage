@@ -8,20 +8,20 @@ module Bricolage
     class LoaderParams
 
       def LoaderParams.load(ctx, task)
-        job = load_job(ctx, task.schema, task.table)
+        job = load_job(ctx, task)
         job.provide_default 'dest-table', "#{task.schema}.#{task.table}"
         #job.provide_sql_file_by_job_id   # FIXME: provide only when exist
         job.compile
         new(task, job)
       end
 
-      def LoaderParams.load_job(ctx, schema, table)
-        if job_file = find_job_file(ctx, schema, table)
+      def LoaderParams.load_job(ctx, task)
+        if job_file = find_job_file(ctx, task.schema, task.table)
           ctx.logger.debug "using .job file: #{job_file}"
           Job.load_file(job_file, ctx.subsystem(schema))
         else
           ctx.logger.debug "using default job parameters (no .job file)"
-          Job.instantiate(table, 'streaming_load_v3', ctx).tap {|job|
+          Job.instantiate(task.table, 'streaming_load_v3', ctx).tap {|job|
             job.bind_parameters({})
           }
         end
@@ -46,12 +46,28 @@ module Bricolage
         @task.seq
       end
 
+      def job_id
+        @task.job_id
+      end
+
+      def job_seq
+        @task.job_seq
+      end
+
+      def source_id
+        @task.source_id
+      end
+
       def schema
         @task.schema
       end
 
       def table
         @task.table
+      end
+
+      def object_urls
+        @task.object_urls
       end
 
       def ds
@@ -99,8 +115,6 @@ module Bricolage
         params.add SQLFileParam.new('sql-file', 'PATH', 'SQL to insert rows from the work table to the target table.', optional: true)
         params.add DataSourceParam.new('sql', 'redshift-ds', 'Target data source.')
         params.add DataSourceParam.new('s3', 'ctl-ds', 'Manifest file data source.')
-        params.add StringParam.new('buffer-size-limit', 'BUFFER_SIZE_LIMIT', 'Buffer size limit.', optional: true)
-        params.add StringParam.new('load-interval', 'LOAD_INTERVAL', 'Load interval is sec.', optional: true)
       end
 
       def self.default_load_options

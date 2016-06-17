@@ -29,8 +29,8 @@ module Bricolage
 
         service = new(
           context: ctx,
+          control_data_source: ctx.get_data_source('sql', config.fetch('ctl-postgres-ds')),
           data_source: redshift_ds,
-          task_queue: task_queue,
           logger: ctx.logger
         )
 
@@ -41,7 +41,7 @@ module Bricolage
           # Server mode
           Process.daemon(true) if opts.daemon?
           create_pid_file opts.pid_file_path if opts.pid_file_path
-          service.event_loop
+          service.load_loop
         end
       end
 
@@ -62,33 +62,62 @@ module Bricolage
         # ignore
       end
 
-      def initialize(context:, data_source:, task_queue: nil, logger:)
+      def initialize(context:, control_data_source:, data_source:, logger:)
         @ctx = context
+        @ctl_ds = control_data_source
         @ds = data_source
-        @task_queue = task_queue
         @logger = logger
       end
 
-      def execute_task(task_id)
-        task = @ds.open {|conn| LoadTask.load(conn, task_id) }
-        loader = Loader.load_from_file(@ctx, task, logger: @ctx.logger)
+      def load_loop
+        trap_signals
+        n_zero = 0
+        until terminating?
+          wait(n_zero)
+          task = get_task
+          if task
+            execute(task)
+            n_zero = 0
+          else
+            n_zero += 1
+          end
+        end
+        @logger.info "shutdown gracefully"
+      end
+
+      def get_task
+        @ctl_ds.open {|conn| LoadTask.load(conn) }
+      end
+
+      def execute(task)
+        @logger.info "handling task: table=#{task.qualified_name} task_id=#{task.id} task_seq=#{task.seq}"
+        loader = Loader.load_from_file(@ctx, @ctl_ds, task, logger: @ctx.logger)
         loader.execute
       end
 
-      def event_loop
-        @task_queue.main_handler_loop(handlers: self, message_class: Task)
+      def trap_signals
+        [:TERM,:INT].each {|sig|
+          Signal.trap(sig) {
+            initiate_terminate
+          }
+        }
       end
 
-      def handle_streaming_load_v3(task)
-        # FIXME: check initialized/disabled
-        @logger.info "handling load task: table=#{task.qualified_name} task_id=#{task.id} task_seq=#{task.seq}"
-        loader = Loader.load_from_file(@ctx, task, logger: @ctx.logger)
-        loader.execute
-        @task_queue.delete_message(task)
+      def initiate_terminate
+        @terminating = true
+      end
+
+      def terminating?
+        @terminating
+      end
+
+      def wait(n_zero)
+        sec = 2 ** [n_zero, 6].min   # max 64s
+        @logger.info "queue wait: sleep #{sec}" if n_zero > 0
+        sleep sec
       end
 
     end
-
 
     class LoaderServiceOptions
 
