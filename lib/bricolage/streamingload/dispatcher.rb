@@ -90,12 +90,13 @@ module Bricolage
         end
         obj = e.loadable_object(@url_patterns)
         @object_buffer.put(obj)
+        @event_queue.delete_message(e)
       end
 
       def handle_processflush(e)
-        @event_queue.delete_message(e)
         @object_buffer.flush
         set_processflush_timer
+        @event_queue.delete_message(e)
       end
 
       def set_processflush_timer
