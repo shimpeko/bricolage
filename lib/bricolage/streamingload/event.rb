@@ -9,7 +9,7 @@ module Bricolage
       def Event.get_concrete_class(msg, rec)
         case
         when rec['eventName'] == 'shutdown' then ShutdownEvent
-        when rec['eventName'] == 'processflush' then ProcessFlushEvent
+        when rec['eventName'] == 'dispatch' then DispatchEvent
         when rec['eventName'] == 'flush' then FlushEvent
         when rec['eventSource'] == 'aws:s3'
           S3ObjectEvent
@@ -75,10 +75,10 @@ module Bricolage
 
     end
 
-    class ProcessFlushEvent < Event
+    class DispatchEvent < Event
 
-      def ProcessFlushEvent.create(delay_seconds:)
-        super name: 'processflush', delay_seconds: delay_seconds
+      def DispatchEvent.create(delay_seconds:)
+        super name: 'dispatch', delay_seconds: delay_seconds
       end
 
       alias message_type name

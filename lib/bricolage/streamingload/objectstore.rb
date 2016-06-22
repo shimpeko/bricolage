@@ -27,9 +27,11 @@ module Bricolage
       def_delegator '@components', :schema_name
       def_delegator '@components', :table_name
 
-      def qualified_name
+      def data_source_id
         "#{schema_name}.#{table_name}"
       end
+
+      alias qualified_name data_source_id
 
       def event_time
         @event.time
@@ -37,74 +39,73 @@ module Bricolage
 
     end
 
-    class ObjectBuffer
+    class ObjectStore
 
       include SQLUtils
 
-      def initialize(control_data_source:, flush_interval: 60, logger:)
+      def initialize(control_data_source:, logger:)
         @ctl_ds = control_data_source
-        @flush_interval = flush_interval
         @logger = logger
-        enable_pgcrypto
       end
 
-      attr_reader :flush_interval
-
-      def put(obj)
+      def store(obj)
         @ctl_ds.open {|conn|
           insert_object(conn, obj)
         }
       end
 
-      def flush
+      def assign_objects_to_tasks
+        task_seqs  = []
         @ctl_ds.open {|conn|
           conn.transaction {|txn|
-            insert_tasks(conn)
-            insert_task_objects(conn)
+            task_seqs = insert_tasks(conn)
+            insert_task_object_mappings(conn)
           }
         }
+        return task_seqs.map {|seq| LoadTask.create(task_seq: seq) }
       end
 
       private
 
-      def enable_pgcrypto
-        @ctl_ds.create_extension('pgcrypto')
-      end
-
       def insert_object(conn, obj)
-        source_id = "#{obj.schema_name}.#{obj.table_name}"
         conn.update(<<-EndSQL)
             insert into strload_objects
-                ( source_id
-                , object_url
+                (object_url
                 , object_size
+                , schema_name
+                , table_name
                 , submit_time
                 )
             select
-                #{s source_id}
-                , #{s obj.url}
+                #{s obj.url}
                 , #{obj.size}
+                , schema_name
+                , table_name
                 , current_timestamp
+            from
+                strload_tables
             where
-                not exists (select * from strload_objects where object_url = #{s obj.url})
-                and exists (select * from strload_tables where source_id = #{s source_id})
+                data_source_id = #{s obj.data_source_id}
+                and not exists (select * from strload_objects where object_url = #{s obj.url})
             ;
         EndSQL
       end
 
       def insert_tasks(conn)
-        conn.update(<<-EndSQL)
+        vals = conn.query_values(<<-EndSQL)
           insert into
-              strload_tasks (id, source_id, submit_time)
+              strload_tasks (task_class, schema_name, table_name, submit_time)
           select
-              gen_random_uuid()
-              , obj.source_id
+              'streaming_load_v3'
+              , tbl.schema_name
+              , tbl.table_name
               , current_timestamp
           from
               strload_tables tbl
               inner join (
                   select
-                      source_id
+                      schema_name
+                      , table_name
                       , count(*) as object_count
                   from
                       strload_objects t1
@@ -113,31 +114,35 @@ module Bricolage
                   where
                       task_seq is null -- not assigned to a task
                   group by
-                      source_id
+                      schema_name, table_name
                   ) obj -- number of objects not assigned to a task (won't return zero)
-                  on tbl.source_id = obj.source_id
+                  using (schema_name, table_name)
               left outer join (
                   select
-                      source_id
+                      schema_name
+                      , table_name
                       , max(submit_time) as latest_submit_time
                   from
                       strload_tasks
                   group by
-                      source_id
+                      schema_name, table_name
                   ) task -- preceeding task's submit time
-                  on tbl.source_id = task.source_id
+                  using(schema_name, table_name)
           where
-              tbl.disabled = false -- not disabled
+              not tbl.disabled -- not disabled
               and (
                 obj.object_count > tbl.load_batch_size -- batch_size exceeded?
                 or extract(epoch from current_timestamp - latest_submit_time) > load_interval -- load_interval exceeded?
                 or latest_submit_time is null -- no last task
               )
+          returning task_seq
           ;
         EndSQL
+        @logger.info "Number of task created: #{vals.size}"
+        vals
       end
 
-      def insert_task_objects(conn)
+      def insert_task_object_mappings(conn)
         conn.update(<<-EndSQL)
           insert into
               strload_task_objects
@@ -155,17 +160,20 @@ module Bricolage
                   inner join (
                       select
                           min(task_seq) as task_seq -- oldest task
-                          , strload_tasks.source_id
+                          , tbl.schema_name
+                          , tbl.table_name
                           , max(load_batch_size) as load_batch_size
                       from
                           strload_tasks
-                          inner join strload_tables
-                              using(source_id)
+                          inner join strload_tables tbl
+                              using(schema_name, table_name)
                       where
                           task_seq not in (select distinct task_seq from strload_task_objects) -- no assigned objects
-                      group by 2 -- group by source_id to prevent an object assigned to multiple task
+                      group by
+                          2
+                          , 3
                       ) task -- tasks without objects
-                      on obj.source_id = task.source_id
+                      using(schema_name, table_name)
                   left outer join strload_task_objects task_obj
                       using(object_seq)
               where

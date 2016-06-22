@@ -52,24 +52,16 @@ module Bricolage
         @task.seq
       end
 
-      def job_id
-        @task.job_id
-      end
-
-      def job_seq
-        @task.job_seq
-      end
-
-      def source_id
-        @task.source_id
-      end
-
       def schema
         @task.schema
       end
 
       def table
         @task.table
+      end
+
+      def rerun
+        @task.rerun
       end
 
       def object_urls

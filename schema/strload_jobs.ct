@@ -1,11 +1,9 @@
 CREATE TABLE strload_jobs (
-  job_seq bigserial NOT NULL
-  , id character varying(128) NOT NULL
-  , task_seq bigserial NOT NULL
-  , task_id character varying(128) NOT NULL
-  , loader_id varchar(64) NOT NULL
-  , status character varying(16)
-  , start_time timestamp with time zone
+  job_seq bigserial
+  , task_seq bigint NOT NULL
+  , process_id varchar(128) NOT NULL
+  , status character varying(16) NOT NULL
+  , start_time timestamp with time zone NOT NULL
   , finish_time timestamp with time zone
   , message character varying(512)
   , CONSTRAINT strload_jobs_pkey PRIMARY KEY (job_seq)

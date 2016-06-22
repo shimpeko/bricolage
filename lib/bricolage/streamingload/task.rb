@@ -5,136 +5,117 @@ module Bricolage
 
   module StreamingLoad
 
-    class LoadTask
+    class Task < SQSMessage
 
-      @@loader_id = "#{`hostname`.strip}-#{$$}"
-
-      def LoadTask.set_loader_id(loader_id)
-        @@loader_id = loader_id
+      def Task.get_concrete_class(msg, rec)
+        case
+        when rec['eventName'] == 'streaming_load_v3' then LoadTask
+        else
+          raise "[FATAL] unknown SQS message record: eventSource=#{rec['eventSource']} event=#{rec['eventName']} message_id=#{msg.message_id}"
+        end
       end
 
-      def LoadTask.load(conn)
-        start_task(conn)
-        load_started_task(conn)
+      def message_type
+        raise "#{self.class}\#message_type must be implemented"
       end
 
-      def LoadTask.load_by_id(conn, task_id)
-        start_task_by_id(conn, task_id)
-        load_started_task(conn)
+      def data?
+        false
       end
 
-      def LoadTask.start_task(conn)
-        conn.update(<<-EndSQL)
-          insert into strload_jobs
-              ( id
-              , task_seq
-              , task_id
-              , loader_id
-              , status
-              , start_time
-              )
-          select
-              gen_random_uuid()
-              , task_seq
-              , tsk.id
-              , '#{@@loader_id}'
-              , 'running'
-              , current_timestamp
-          from
-              strload_tasks tsk
-              inner join strload_tables
-                  using(source_id)
-          where
-              task_seq not in (select task_seq from strload_jobs) -- only task not executed yet
-              and disabled = false
-          order by
-              submit_time -- fifo
-          limit 1
-          ;
-        EndSQL
+    end
+
+
+    class LoadTask < Task
+
+      def LoadTask.create(task_seq:, rerun: false)
+        super name: 'streaming_load_v3', task_seq: task_seq, rerun: rerun
       end
 
-      def LoadTask.start_task_by_id(conn, task_id)
-        conn.update(<<-EndSQL)
-          insert into strload_jobs
-              ( id
-              , task_seq
-              , task_id
-              , loader_id
-              , status
-              , start_time
-              )
-          select
-              gen_random_uuid()
-              , task_seq
-              , id
-              , '#{@@loader_id}'
-              , 'running'
-              , current_timestamp
-          from
-              strload_tasks
-          where
-              id = '#{task_id}'
-          ;
-        EndSQL
+      def LoadTask.parse_sqs_record(msg, rec)
+        {
+          task_seq: rec['taskSeq'],
+          rerun: rec['rerun'],
+        }
       end
 
-      def LoadTask.load_started_task(conn)
+      def LoadTask.load(conn, task_seq, rerun: false)
         rec = conn.query_row(<<-EndSQL)
           select
-              job.task_seq
-              , task_id
-              , task.source_id
-              , schema_name
-              , table_name
-              , job_seq
-              , job.id as job_id
+              task_class
+              , tbl.schema_name
+              , tbl.table_name
+              , disabled
           from
-              strload_tasks task
-              inner join strload_jobs job
-                  on task.task_seq = job.task_seq
-                  and status = 'running'
-                  and loader_id = '#{@@loader_id}'
+              strload_tasks tsk
               inner join strload_tables tbl
-                  using(source_id)
-          order by
-              start_time desc -- lifo
-          limit 1
+                  using(schema_name, table_name)
+          where
+              task_seq = #{task_seq}
           ;
         EndSQL
-        return nil unless rec
         object_urls = conn.query_values(<<-EndSQL)
           select
               object_url
           from
-              strload_objects
-          inner join strload_task_objects
-              using(object_seq)
+              strload_task_objects
+              inner join strload_objects
+              using (object_seq)
+              inner join strload_tasks
+              using (task_seq)
           where
-              task_seq = #{rec['task_seq']}
+              task_seq = #{task_seq}
           ;
         EndSQL
-        rec['object_urls'] = object_urls
-        new(Hash[rec.map {|k, v| [k.to_sym, v] }])
+        return nil unless rec
+        p rec
+        new(
+          name: rec['task_class'],
+          time: nil,
+          source: nil,
+          task_seq: task_seq,
+          schema: rec['schema_name'],
+          table: rec['table_name'],
+          object_urls: object_urls,
+          disabled: rec['disabled'] == 'f' ? false : true,
+          rerun: rerun
+        )
       end
 
-      private_class_method :start_task, :start_task_by_id, :load_started_task
+      alias message_type name
 
-      def initialize(task_seq:, task_id:, source_id:, schema_name:, table_name:, job_seq:, job_id:, object_urls:)
-        @id = task_id
+      def init_message(task_seq:, schema: nil, table: nil, object_urls: nil, disabled: false, rerun: false)
         @seq = task_seq
-        @source_id = source_id
-        @schema = schema_name
-        @table = table_name
-        @job_seq = job_seq
-        @job_id = job_id
+        @rerun = rerun
+
+        # Effective only for queue reader process
+        @schema = schema
+        @table = table
         @object_urls = object_urls
+        @disabled = disabled
       end
 
-      attr_reader :id, :seq, :source_id, :schema, :table, :job_seq, :job_id, :object_urls
+      attr_reader :seq, :rerun
+
+      #
+      # For writer only
+      #
+
+      attr_reader :schema, :table, :object_urls, :disabled
 
       def qualified_name
         "#{@schema}.#{@table}"
+      end
+
+      def body
+        obj = super
+        obj['taskSeq'] = @seq
+        obj['schemaName'] = @schema
+        obj['tableName'] = @table
+        obj['objectUrls'] = @object_urls
+        obj['disabled'] = @disabled
+        obj['rerun'] = @rerun
+        obj
       end
 
     end

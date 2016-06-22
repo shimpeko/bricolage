@@ -1,7 +1,6 @@
 require 'bricolage/streamingload/loaderparams'
 require 'bricolage/streamingload/manifest'
 require 'bricolage/sqlutils'
-require 'securerandom'
 require 'json'
 
 module Bricolage
@@ -14,26 +13,55 @@ module Bricolage
 
       def Loader.load_from_file(ctx, ctl_ds, task, logger:)
         params = LoaderParams.load(ctx, task)
-        new(ctl_ds, params , logger: logger)
+        new(ctl_ds, params, logger: logger)
       end
 
       def initialize(ctl_ds, params, logger:)
         @ctl_ds = ctl_ds
         @params = params
         @logger = logger
+        @process_id = "#{`hostname`.strip}-#{$$}"
       end
 
       def execute
+        @job_seq = assign_task
+        return unless @job_seq # task already executed by other loader
         @params.ds.open {|conn|
           @connection = conn
           do_load
         }
       end
 
+      def assign_task
+        @ctl_ds.open {|conn|
+          job_seq = conn.query_value(<<-EndSQL)
+            insert into strload_jobs
+                ( task_seq
+                , process_id
+                , status
+                , start_time
+                )
+            select
+                task_seq
+                , '#{@process_id}'
+                , 'running'
+                , current_timestamp
+            from
+                strload_tasks
+            where
+                task_seq = #{@params.task_seq}
+                and (task_seq not in (select task_seq from strload_jobs) or #{@params.rerun})
+            returning job_seq
+            ;
+          EndSQL
+          return job_seq
+        }
+      end
+
       def do_load
         ManifestFile.create(
           @params.ctl_bucket,
-          job_id: @params.job_id,
+          job_seq: @job_seq,
           object_urls: @params.object_urls,
           logger: @logger
         ) {|manifest|
@@ -102,7 +130,7 @@ module Bricolage
             set
                 (status, finish_time, message) = ('#{status}', current_timestamp, '#{message}')
             where
-                job_seq = #{@params.job_seq}
+                job_seq = #{@job_seq}
             ;
           EndSQL
         }

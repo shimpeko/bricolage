@@ -1,8 +1,9 @@
 CREATE TABLE strload_objects (
-  object_seq bigserial NOT NULL
-  , source_id character varying(256)  NOT NULL
+  object_seq bigserial
   , object_url character varying(512) NOT NULL
   , object_size integer NOT NULL
+  , schema_name varchar(128) NOT NULL
+  , table_name varchar(128) NOT NULL
   , submit_time timestamp with time zone NOT NULL
   , CONSTRAINT strload_objects_pkey PRIMARY KEY (object_seq)
 );

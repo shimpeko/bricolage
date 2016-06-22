@@ -31,18 +31,18 @@ module Bricolage
           context: ctx,
           control_data_source: ctx.get_data_source('sql', config.fetch('ctl-postgres-ds')),
           data_source: redshift_ds,
+          task_queue: task_queue,
           logger: ctx.logger
         )
 
-        LoadTask.set_loader_id(opts.loader_id) if opts.loader_id
-        if opts.task_id
+        if opts.task_seq
           # Single task mode
-          service.execute_task opts.task_id
+          service.execute_task opts.task_seq
         else
           # Server mode
           Process.daemon(true) if opts.daemon?
           create_pid_file opts.pid_file_path if opts.pid_file_path
-          service.load_loop
+          service.event_loop
         end
       end
 
@@ -63,69 +63,41 @@ module Bricolage
         # ignore
       end
 
-      def initialize(context:, control_data_source:, data_source:, logger:)
+      def initialize(context:, control_data_source:, data_source:, task_queue:, logger:)
         @ctx = context
         @ctl_ds = control_data_source
         @ds = data_source
+        @task_queue = task_queue
         @logger = logger
-        enable_pgcrypto
       end
 
-      def enable_pgcrypto
-        @ctl_ds.create_extension('pgcrypto')
+      def event_loop
+        @task_queue.main_handler_loop(handlers: self, message_class: Task)
       end
 
-      def load_loop
-        trap_signals
-        n_zero = 0
-        until terminating?
-          wait(n_zero)
-          task = get_task
-          if task
-            execute(task)
-            n_zero = 0
-          else
-            n_zero += 1
-          end
-        end
-        @logger.info "shutdown gracefully"
+      def execute_task_by_seq(task_seq)
+        execute_task load_task(task_seq)
       end
 
-      def get_task
-        @ctl_ds.open {|conn| LoadTask.load(conn) }
+      def load_task(task_seq, rerun: true)
+        @ctl_ds.open {|conn| LoadTask.load(conn, task_seq, rerun: rerun) }
       end
 
-      def execute(task)
-        @logger.info "handling task: table=#{task.qualified_name} task_id=#{task.id} task_seq=#{task.seq} num_objects=#{task.object_urls.size}"
+      def handle_streaming_load_v3(task)
+        # 1. Load task detail from table
+        # 2. Skip disabled (sqs message should not have disabled state since it will never be exectuted)
+        # 3. Try execute
+        #   - Skip if the task has already been executed AND rerun = false
+        loadtask = load_task(task.seq, rerun: task.rerun)
+        return if loadtask.disabled # skip if disabled, but don't delete sqs msg
+        execute_task(loadtask)
+        @task_queue.delete_message(task)
+      end
+
+      def execute_task(task)
+        @logger.info "handling load task: table=#{task.qualified_name} task_seq=#{task.seq}"
         loader = Loader.load_from_file(@ctx, @ctl_ds, task, logger: @ctx.logger)
         loader.execute
-      end
-
-      def execute_task(task_id)
-        task = @ctl_ds.open {|conn| LoadTask.load_by_id(conn) }
-        execute(task)
-      end
-
-      def trap_signals
-        [:TERM,:INT].each {|sig|
-          Signal.trap(sig) {
-            initiate_terminate
-          }
-        }
-      end
-
-      def initiate_terminate
-        @terminating = true
-      end
-
-      def terminating?
-        @terminating
-      end
-
-      def wait(n_zero)
-        sec = 2 ** [n_zero, 6].min   # max 64s
-        @logger.info "queue wait: sleep #{sec}" if n_zero > 0
-        sleep sec
       end
 
     end
@@ -134,19 +106,15 @@ module Bricolage
 
       def initialize(argv)
         @argv = argv
-        @task_id = nil
-        @loader_id = nil
+        @task_seq = nil
         @daemon = false
         @log_file_path = nil
         @pid_file_path = nil
         @rest_arguments = nil
 
         @opts = opts = OptionParser.new("Usage: #{$0} CONFIG_PATH")
-        opts.on('--task-id=ID', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_id|
-          @task_id = task_id
-        }
-        opts.on('--loader-id=ID', 'Set loader ID') {|loader_id|
-          @loader_id = loader_id
+        opts.on('--task-seq=SEQ', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_seq|
+          @task_seq = task_seq
         }
         opts.on('-e', '--environment=NAME', "Sets execution environment [default: #{Context::DEFAULT_ENV}]") {|env|
           @environment = env
@@ -182,7 +150,7 @@ module Bricolage
       end
 
       attr_reader :rest_arguments, :environment, :log_file_path
-      attr_reader :task_id, :loader_id
+      attr_reader :task_seq
 
       def daemon?
         @daemon
