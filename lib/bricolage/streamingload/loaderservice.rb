@@ -29,14 +29,15 @@ module Bricolage
 
         service = new(
           context: ctx,
+          control_data_source: ctx.get_data_source('sql', config.fetch('ctl-postgres-ds')),
           data_source: redshift_ds,
           task_queue: task_queue,
           logger: ctx.logger
         )
 
-        if opts.task_id
+        if opts.task_seq
           # Single task mode
-          service.execute_task opts.task_id
+          service.execute_task opts.task_seq
         else
           # Server mode
           Process.daemon(true) if opts.daemon?
@@ -62,47 +63,58 @@ module Bricolage
         # ignore
       end
 
-      def initialize(context:, data_source:, task_queue: nil, logger:)
+      def initialize(context:, control_data_source:, data_source:, task_queue:, logger:)
         @ctx = context
+        @ctl_ds = control_data_source
         @ds = data_source
         @task_queue = task_queue
         @logger = logger
-      end
-
-      def execute_task(task_id)
-        task = @ds.open {|conn| LoadTask.load(conn, task_id) }
-        loader = Loader.load_from_file(@ctx, task, logger: @ctx.logger)
-        loader.execute
       end
 
       def event_loop
         @task_queue.main_handler_loop(handlers: self, message_class: Task)
       end
 
+      def execute_task_by_seq(task_seq)
+        execute_task load_task(task_seq)
+      end
+
+      def load_task(task_seq, rerun: true)
+        @ctl_ds.open {|conn| LoadTask.load(conn, task_seq, rerun: rerun) }
+      end
+
       def handle_streaming_load_v3(task)
-        # FIXME: check initialized/disabled
-        @logger.info "handling load task: table=#{task.qualified_name} task_id=#{task.id} task_seq=#{task.seq}"
-        loader = Loader.load_from_file(@ctx, task, logger: @ctx.logger)
-        loader.execute
+        # 1. Load task detail from table
+        # 2. Skip disabled (sqs message should not have disabled state since it will never be exectuted)
+        # 3. Try execute
+        #   - Skip if the task has already been executed AND rerun = false
+        loadtask = load_task(task.seq, rerun: task.rerun)
+        return if loadtask.disabled # skip if disabled, but don't delete sqs msg
+        execute_task(loadtask)
         @task_queue.delete_message(task)
       end
 
-    end
+      def execute_task(task)
+        @logger.info "handling load task: table=#{task.qualified_name} task_seq=#{task.seq}"
+        loader = Loader.load_from_file(@ctx, @ctl_ds, task, logger: @ctx.logger)
+        loader.execute
+      end
 
+    end
 
     class LoaderServiceOptions
 
       def initialize(argv)
         @argv = argv
-        @task_id = nil
+        @task_seq = nil
         @daemon = false
         @log_file_path = nil
         @pid_file_path = nil
         @rest_arguments = nil
 
         @opts = opts = OptionParser.new("Usage: #{$0} CONFIG_PATH")
-        opts.on('--task-id=ID', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_id|
-          @task_id = task_id
+        opts.on('--task-seq=SEQ', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_seq|
+          @task_seq = task_seq
         }
         opts.on('-e', '--environment=NAME', "Sets execution environment [default: #{Context::DEFAULT_ENV}]") {|env|
           @environment = env
@@ -138,7 +150,7 @@ module Bricolage
       end
 
       attr_reader :rest_arguments, :environment, :log_file_path
-      attr_reader :task_id
+      attr_reader :task_seq
 
       def daemon?
         @daemon

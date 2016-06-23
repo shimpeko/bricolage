@@ -135,6 +135,11 @@ module Bricolage
     def analyze(table)
       open {|conn| conn.analyze(table) }
     end
+
+    def create_extension(extension)
+      open {|conn| conn.update("create extension if not exists #{extension};") }
+    end
+
   end
 
   class DataSource   # reopen

@@ -2,7 +2,7 @@ require 'bricolage/exception'
 require 'bricolage/version'
 require 'bricolage/sqsdatasource'
 require 'bricolage/streamingload/event'
-require 'bricolage/streamingload/objectbuffer'
+require 'bricolage/streamingload/objectstore'
 require 'bricolage/streamingload/urlpatterns'
 require 'aws-sdk'
 require 'yaml'
@@ -30,28 +30,25 @@ module Bricolage
         event_queue = ctx.get_data_source('sqs', config.fetch('event-queue-ds'))
         task_queue = ctx.get_data_source('sqs', config.fetch('task-queue-ds'))
 
-        object_buffer = ObjectBuffer.new(
-          task_queue: task_queue,
-          data_source: ctx.get_data_source('sql', 'sql'),
-          control_data_source: ctx.get_data_source('s3', config.fetch('ctl-ds')),
-          default_buffer_size_limit: 500,
-          default_load_interval: 900,
-          process_flush_interval: 60,
-          context: ctx
+        object_store = ObjectStore.new(
+          control_data_source: ctx.get_data_source('sql', config.fetch('ctl-postgres-ds')),
+          logger: ctx.logger
         )
 
         url_patterns = URLPatterns.for_config(config.fetch('url_patterns'))
 
         dispatcher = Dispatcher.new(
           event_queue: event_queue,
-          object_buffer: object_buffer,
+          task_queue: task_queue,
+          object_store: object_store,
           url_patterns: url_patterns,
+          dispatch_interval: 60,
           logger: ctx.logger
         )
 
         Process.daemon(true) if opts.daemon?
         create_pid_file opts.pid_file_path if opts.pid_file_path
-        dispatcher.set_processflush_timer
+        dispatcher.set_dispatch_timer
         dispatcher.event_loop
       end
 
@@ -72,10 +69,13 @@ module Bricolage
         # ignore
       end
 
-      def initialize(event_queue:, object_buffer:, url_patterns:, logger:)
+      def initialize(event_queue:, task_queue:, object_store:, url_patterns:, dispatch_interval:, logger:)
         @event_queue = event_queue
-        @object_buffer = object_buffer
+        @task_queue = task_queue
+        @object_store = object_store
         @url_patterns = url_patterns
+        @dispatch_interval = dispatch_interval
+        @dispatch_message_id = nil
         @logger = logger
       end
 
@@ -94,36 +94,22 @@ module Bricolage
           return
         end
         obj = e.loadable_object(@url_patterns)
-        buf = @object_buffer[obj.qualified_name]
-        unless buf
-          @event_queue.delete_message(e)
-          return
-        end
-        if buf.empty?
-          set_flush_timer obj.qualified_name, buf.load_interval
-        end
-        buf.put(obj)
-      end
-
-      def set_flush_timer(table_name, sec)
-        @event_queue.send_message FlushEvent.create(table_name: table_name, delay_seconds: sec)
-      end
-
-      def handle_flush(e)
-        # might be nil in rare case ( stop -> del job file -> start )
-        @object_buffer[e.table_name].request_flush if @object_buffer[e.table_name]
+        @object_store.store(obj)
         @event_queue.delete_message(e)
       end
 
-      def handle_processflush(e)
+      def handle_dispatch(e)
+        if @dispatch_message_id == e.message_id
+          tasks = @object_store.assign_objects_to_tasks
+          tasks.each {|task| @task_queue.put task }
+          set_dispatch_timer
+        end
         @event_queue.delete_message(e)
-        load_tasks = @object_buffer.process_flush
-        load_tasks.each {|load_task| delete_events(load_task.source_events) }
-        set_processflush_timer
       end
 
-      def set_processflush_timer
-        @event_queue.send_message ProcessFlushEvent.create(delay_seconds: @object_buffer.process_flush_interval)
+      def set_dispatch_timer
+        resp = @event_queue.send_message DispatchEvent.create(delay_seconds: @dispatch_interval)
+        @dispatch_message_id = resp.message_id
       end
 
       def delete_events(events)
@@ -145,8 +131,8 @@ module Bricolage
         @rest_arguments = nil
 
         @opts = opts = OptionParser.new("Usage: #{$0} CONFIG_PATH")
-        opts.on('--task-id=ID', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_id|
-          @task_id = task_id
+        opts.on('--task-seq=SEQ', 'Execute oneshot load task (implicitly disables daemon mode).') {|task_seq|
+          @task_seq = task_seq
         }
         opts.on('-e', '--environment=NAME', "Sets execution environment [default: #{Context::DEFAULT_ENV}]") {|env|
           @environment = env

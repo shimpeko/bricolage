@@ -28,110 +28,94 @@ module Bricolage
 
     class LoadTask < Task
 
-      def LoadTask.create(task_id:, schema:, table:, objects:)
-        super name: 'streaming_load_v3', task_id: task_id, schema: schema, table: table, objects: objects
+      def LoadTask.create(task_seq:, rerun: false)
+        super name: 'streaming_load_v3', task_seq: task_seq, rerun: rerun
       end
 
       def LoadTask.parse_sqs_record(msg, rec)
         {
-          task_id: rec['dwhTaskId'],
-          task_seq: rec['dwhTaskSeq'],
-          schema: rec['schemaName'],
-          table: rec['tableName'],
-          object_count: rec['objectCount'],
-          total_object_bytes: rec['totalObjectBytes']
+          task_seq: rec['taskSeq'],
+          rerun: rec['rerun'],
         }
       end
 
-      def LoadTask.load(conn, task_id)
+      def LoadTask.load(conn, task_seq, rerun: false)
         rec = conn.query_row(<<-EndSQL)
           select
-              t.dwh_task_seq
-              , t.dwh_task_class
-              , t.schema_name
-              , t.table_name
-              , prm.initialized
-              , prm.disabled
+              task_class
+              , tbl.schema_name
+              , tbl.table_name
+              , disabled
           from
-              dwh_tasks t
-              left outer join dwh_str_load_tables prm using (schema_name, table_name)
+              strload_tasks tsk
+              inner join strload_tables tbl
+                  using(schema_name, table_name)
           where
-              t.dwh_task_id = '#{task_id}'
+              task_seq = #{task_seq}
           ;
         EndSQL
+        object_urls = conn.query_values(<<-EndSQL)
+          select
+              object_url
+          from
+              strload_task_objects
+              inner join strload_objects
+              using (object_seq)
+              inner join strload_tasks
+              using (task_seq)
+          where
+              task_seq = #{task_seq}
+          ;
+        EndSQL
+        return nil unless rec
+        p rec
         new(
-          name: rec['dwh_task_class'],
+          name: rec['task_class'],
           time: nil,
           source: nil,
-          task_id: task_id,
-          task_seq: rec['dwh_task_seq'],
+          task_seq: task_seq,
           schema: rec['schema_name'],
           table: rec['table_name'],
-          initialized: rec['initialized'],
-          disabled: rec['disabled']
+          object_urls: object_urls,
+          disabled: rec['disabled'] == 'f' ? false : true,
+          rerun: rerun
         )
       end
 
       alias message_type name
 
-      def init_message(task_id:, task_seq: nil,
-          schema:, table:, objects: nil,
-          initialized: nil, disabled: nil,
-          object_count: nil, total_object_bytes: nil)
-        @id = task_id
+      def init_message(task_seq:, schema: nil, table: nil, object_urls: nil, disabled: false, rerun: false)
         @seq = task_seq
+        @rerun = rerun
+
+        # Effective only for queue reader process
         @schema = schema
         @table = table
-
-        # Effective only on the queue writer process
-        @objects = objects
-
-        # Effective only on the queue reader process
-        @initialized = initialized
+        @object_urls = object_urls
         @disabled = disabled
       end
 
-      attr_reader :id
-      attr_accessor :seq
+      attr_reader :seq, :rerun
 
-      attr_reader :schema
-      attr_reader :table
+      #
+      # For writer only
+      #
+
+      attr_reader :schema, :table, :object_urls, :disabled
 
       def qualified_name
         "#{@schema}.#{@table}"
       end
 
-      #
-      # For writer
-      #
-
-      attr_reader :objects
-
-      def source_events
-        @objects.map(&:event)
-      end
-
       def body
         obj = super
-        obj['dwhTaskId'] = @id
-        obj['dwhTaskSeq'] = @seq
+        obj['taskSeq'] = @seq
         obj['schemaName'] = @schema
         obj['tableName'] = @table
-        obj['objectCount'] = @objects.size
-        obj['totalObjectBytes'] = @objects.inject(0) {|sz, obj| sz + obj.size }
+        obj['objectUrls'] = @object_urls
+        obj['disabled'] = @disabled
+        obj['rerun'] = @rerun
         obj
-      end
-
-      #
-      # For reader
-      #
-
-      def initialized?
-        @initialized
-      end
-
-      def disabled?
-        @disabled
       end
 
     end

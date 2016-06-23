@@ -1,13 +1,15 @@
-select
+create view
+    strload_stats
+as select
     task_seq
-    , tbl.source_id
+    , tbl.data_source_id
     , tbl.schema_name
     , tbl.table_name
     , submit_time
     , object_count
     , total_object_size
     , job_seq
-    , loader_id
+    , process_id
     , start_time
     , finish_time
     , status
@@ -29,7 +31,7 @@ from
     left outer join strload_jobs j
         using (task_seq)
     left outer join strload_tables tbl
-        using (source_id)
+        on (t.schema_name, t.table_name) = (tbl.schema_name, tbl.table_name)
 order by
     task_seq
     , job_seq
